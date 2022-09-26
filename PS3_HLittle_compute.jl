@@ -11,18 +11,10 @@ price = Initialize_P()
 ##### Test ######
 println(prim.J)
 
-#=
-#originally thought I should use the BI_Solve function but I don't need to do that ...?
-for i in prim.J:-1:1
-    a=i
-    Bellman(prim, res, price; a) #very likely have a problem here...semicolon ??
-end #close for loop
-=#
-
-Bellman(prim, res, price) #very likely have a problem here...semicolon ??
+Bellman(prim, res, price) #keep having problems here
 
 #just unpacking what I need for now
 @unpack val_func = res
-@unpack kap = kgrid
+@unpack kap = prim
 
-Plots.plot(kap, val_func[:, :, 50])
+Plots.plot(kap, val_func[:, :, 65])

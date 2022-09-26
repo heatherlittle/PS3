@@ -6,10 +6,11 @@ using Parameters, Plots #import the libraries we want
 #Create a primitives struct
 @with_kw struct Primitives
     #demographics
-    J::Float64 = 66 #lifespan
-    JR::Float64 = 46 #age of retirement
-    tR::Float64 = J-JR+1 #length of retirement
-    tW::Float64 = JR-1 #total 
+    J::Int64 = 66 #lifespan
+    JR::Int64 = 46 #age of retirement
+    tR::Int64 = J-JR+1 #length of retirement
+    tW::Int64 = JR-1 #total 
+    age_vec::Array{Int64, 1} = collect(1:1:66)
     n::Float64 = 0.011 #population growth rate
 
     #preferences
@@ -84,18 +85,13 @@ using Parameters, Plots #import the libraries we want
     #capital grid
     maxkap::Float64 = 14 #max value in capital grid, should not be binding! be careful across experiments
     minkap::Float64 = 0 #minimum value of capital grid, changed matlab code from 0.01 to 0 because of what problem set asks
-    nk::Float64 = 180 #number of grid points
-    kap::Array{Float64, 1} = collect(range(minkap, maxkap, 180))
-
-    #inckap::Float64 = (maxkap-minkap)/(nk-1)^2 #distance between points
-    ###below, a process for filling in the capital grid
-    #aux::Array{Float64, 1} = collect(1:1:nk)
-    #kap::Array{Float64, 1} = minkap .+ inckap.*(aux.-1)^2 ...moved this outside of primitives
+    nk::Int64 = 180 #number of grid points
+    kap::Array{Float64, 1} = collect(minkap:((maxkap-minkap)/(nk-1)):maxkap) #this has a uniform density of points, unlike matlab code
 
     #initialize a very small number
     neg::Float64 = -1e10
 
-end
+end #end primitives struct
 
 #Create a mutable struct for results
 mutable struct Results
@@ -116,22 +112,6 @@ mutable struct Prices
     b::Float64 #benefit amount
 end #close mutable struct
 
-#=
-mutable struct Grid
-    kap::Array{Float64, 1}
-end #close mutable struct for the capital grid
-
-function Initialize_K()
-    prim = Primitives()
-    x1 = prim.minkap
-    x2 = prim.inckap
-    for i = 1:180 #where 180 is prim.nk
-    kap[i] = x1 + x2*[i-1].^2
-    end #close for loop
-    kgrid = Grid(kap)
-    return kgrid
-end #close function
-=#
 
 function Initialize_R()
 prim = Primitives()
@@ -171,20 +151,18 @@ end
 function Bellman(prim::Primitives,res::Results, price::Prices) #note that a is going to be an age profile, we'll iterate over it later...NOT accounting for age here
     @unpack val_func, pol_func, lab_func = res #unpack value function
     @unpack w, r, b = price #unpack the interest rate
-    @unpack kap, nk, J, JR, tR, tW, β, σ, γ, θ, α, δ, hs, ls, Phh, Phl, Pll, Plh = prim #unpack model primitives
+    @unpack kap, nk, J, JR, tR, tW, β, σ, γ, θ, α, δ, hs, ls, Phh, Phl, Pll, Plh, e, age_vec= prim #unpack model primitives
     #v_next = zeros(nk, 2, J) #next guess of value function to fill, accounting for each state of the world
 
-    for a in 66:-1:1
-
-        #I will use these for each of the age profiles
-        choice_lower_g = 1 #for exploiting monotonicity of policy function (good state)
-        choice_lower_b = 1 #for exploiting monotonicity of policy function (bad state)
+    for a in reverse(age_vec) #big loop across all ages
 
         if a == J #if you're in the terminal age
             #we know that k'=0 for every single one of these people
             for i = 1:nk
+                #k_hold = kap[i] #kept getting an error when I tried to put this into c directly below
                 c = b + (1+r)*kap[i] #consumption
-                val_func[i, :, J] = c^((1-σ)γ)/(1-σ) #the value function (for both the high and low productivity states) is simply the utility given the capital you're coming in with
+                val_func[i, :, J] .= c^((1-σ)*γ)/(1-σ) #the value function (for both the high and low productivity states) is simply the utility given the capital you're coming in with
+                #val_func[i, 2, J] = c^((1-σ)*γ)/(1-σ)
             end #end for loop
 
         elseif a < J && a >= JR  #if you're retired
@@ -194,10 +172,11 @@ function Bellman(prim::Primitives,res::Results, price::Prices) #note that a is g
                     #alt approach, should we have depreciation in the household's BC/capital law of motion
                     c = b + (1+r)*kap[k] - kap[kp] #consumption associated with a given choice of k prime
                     if c > 0 #only consider this if consumption if greater than zero
-                        val = c^((1-σ)γ)/(1-σ) + β*val_func[kp, 1, a+1] #flow utility plus value func associated with kp choice at tomorrow's age (not productivity state dependent here, so I pick first col)
+                        val = (c^((1-σ)*γ))/(1-σ) + β*val_func[kp, 1, a+1] #flow utility plus value func associated with kp choice at tomorrow's age (not productivity state dependent here, so I pick first col)
                         if val > candidate_max
-                            val_func[kp, :, a] = val #record value associated with that choice
-                            pol_func[kp, :, a] = kap[kp] #record the choice
+                            val_func[kp, :, a] .= val #record value associated with that choice
+                            pol_func[kp, :, a] .= kap[kp] #record the choice
+                            candidate_max = val #update candidate max
                         end #close innner if statement
                     end #close if statement
                 end #close for loop, looping over k prime
@@ -210,7 +189,7 @@ function Bellman(prim::Primitives,res::Results, price::Prices) #note that a is g
                 
                 #focusing only on the high productivity shock
                 for kp_h = 1:nk
-                    l = (γ(1-θ)hs*e[a]*w - (1-γ)((1+r)kap[k]-kap[kp]))/((1-θ)w*hs*e[a])
+                    l = (γ*(1-θ)hs*e[a]*w - (1-γ)*((1+r)*kap[k]-kap[kp_h]))/((1-θ)*w*hs*e[a])
                     if l>1
                         l = 1
                     elseif l<0
@@ -219,31 +198,33 @@ function Bellman(prim::Primitives,res::Results, price::Prices) #note that a is g
                     #alt approach, should we have depreciation in the houshold's BC/capital law of motion
                     c = (1-θ)l*hs*e[a]*w + (1+r)*kap[k] - kap[kp_h] #consumption associated with a given choice of k prime (post tax lab inc, cap inc, less cap invest)
                     if c > 0 #only consider this if consumption if greater than zero
-                        val = ((c^γ(1-l)^(1-γ))^(1-σ))/(1-σ) + β*Phh*val_func[kp, 1, a+1] + β*Phl*val_func[kp, 2, a+1] #flow util plus discounted expectation of val tomorrow given k prime choice
-                        if val > candidate_max
-                            val_func[kp, 1, a] = val #record value associated with that choice, just the high state now
-                            pol_func[kp, 1, a] = kap[kp] #record the choice, just the high state now
-                            lab_func[kp, 1, a] = l #less sure on this, if all else is optimal here, then that's what you're choosing for labor too
+                        val = ((c^γ*(1-l)^(1-γ))^(1-σ))/(1-σ) + β*Phh*val_func[kp_h, 1, a+1] + β*Phl*val_func[kp_h, 2, a+1] #flow util plus discounted expectation of val tomorrow given k prime choice
+                        if val > candidate_max_h
+                            val_func[kp_h, 1, a] = val #record value associated with that choice, just the high state now
+                            pol_func[kp_h, 1, a] = kap[kp_h] #record the choice, just the high state now
+                            lab_func[kp_h, 1, a] = l #less sure on this, if all else is optimal here, then that's what you're choosing for labor too
+                            candidate_max_h = val #update candidate max
                         end #close innner if statement
                     end #close if statement
                 end #close for loop, looping over k prime
                 
                 #focusing only on the low producitivity shock
                 for kp_l = 1:nk
-                    l = (γ(1-θ)ls*e[a]*w - (1-γ)((1+r)kap[k]-kap[kp]))/((1-θ)w*ls*e[a])
+                    l = (γ*(1-θ)*ls*e[a]*w - (1-γ)*((1+r)*kap[k]-kap[kp_l]))/((1-θ)*w*ls*e[a])
                     if l>1
                         l = 1
                     elseif l<0
                         l = 0
                     end #end if loop
                     #alt approach, should we have depreciation in the houshold's BC/capital law of motion
-                    c = (1-θ)l*ls*e[a]*w + (1+r)*kap[k] - kap[kp_h] #consumption associated with a given choice of k prime (post tax lab inc, cap inc, less cap invest)
+                    c = (1-θ)l*ls*e[a]*w + (1+r)*kap[k] - kap[kp_l] #consumption associated with a given choice of k prime (post tax lab inc, cap inc, less cap invest)
                     if c > 0 #only consider this if consumption if greater than zero
-                        val = ((c^γ(1-l)^(1-γ))^(1-σ))/(1-σ) + β*Plh*val_func[kp, 1, a+1] + β*Pll*val_func[kp, 2, a+1] #flow util plus discounted expectation of val tomorrow given k prime choice
-                        if val > candidate_max
-                            val_func[kp, 2, a] = val #record value associated with that choice, just the high state now
-                            pol_func[kp, 2, a] = kap[kp] #record the choice, just the high state now
-                            lab_func[kp, 2, a] = l #less sure on this, if all else is optimal here, then that's what you're choosing for labor too
+                        val = ((c^γ*(1-l)^(1-γ))^(1-σ))/(1-σ) + β*Plh*val_func[kp_l, 1, a+1] + β*Pll*val_func[kp_l, 2, a+1] #flow util plus discounted expectation of val tomorrow given k prime choice
+                        if val > candidate_max_l
+                            val_func[kp_l, 2, a] = val #record value associated with that choice, just the high state now
+                            pol_func[kp_l, 2, a] = kap[kp_l] #record the choice, just the high state now
+                            lab_func[kp_l, 2, a] = l #less sure on this, if all else is optimal here, then that's what you're choosing for labor too
+                            candidate_max_l = val #update candidate max
                         end #close innner if statement
                     end #close if statement
                 end #close for loop, looping over k prime
@@ -253,15 +234,6 @@ function Bellman(prim::Primitives,res::Results, price::Prices) #note that a is g
     end #close the loop over ages
 end #end the Bellman Operator
 
-#=
-function BI_Solve(prim::Primitives,res::Results, price::Prices, a::Int64)
-
-    for i in J:-1:1
-        Bellman(prim, res, prices; a=i) #very likely have a problem here...semicolon ??
-    end #close for loop
-
-end #close the function statement
-=#
 
 ##############################################################################
 
