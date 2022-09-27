@@ -17,4 +17,4 @@ Bellman(prim, res, price) #keep having problems here
 @unpack val_func = res
 @unpack kap = prim
 
-Plots.plot(kap, val_func[:, :, 65])
+Plots.plot(kap, val_func[:, :, 50])
