@@ -109,6 +109,8 @@ end #close mutable struct
 
 #Create a mutable struct for the prices
 mutable struct Prices
+    K_agg::Float64 #aggregate capital
+    L_agg::Float64 #aggregate labor
     w::Float64 #wages
     r::Float64 #interest rate
     b::Float64 #benefit amount
@@ -125,10 +127,13 @@ return prim, res #note that we're returning both primitives and res here so runn
 end #close function
 
 function Initialize_P()
+    K_agg =
+    L_agg = 
+    
     w = 1.05
     r = 0.05
     b = 0.2
-    price = Prices(w, r, b)
+    price = Prices(K_agg, L_agg, w, r, b)
     return price
 end #close function
 
