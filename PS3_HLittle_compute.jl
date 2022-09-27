@@ -4,18 +4,18 @@ using Parameters, Plots
 include("PS3_HLittle_model.jl")
 
 prim, res = Initialize_R()
-#distrib = Initialize_M()
 price = Initialize_P()
-#kgrid = Initialize_K()
-
-##### Test ######
-println(prim.J)
+distrib = Initialize_M()
 
 Bellman(prim, res, price) #I was indexing with k prime when I should have been using k
+
+Fill_Mu(prim, res, distrib) #function to fill out the cross sectional distribution
+
 
 #unpacking what I'll use to plot
 @unpack val_func, pol_func  = res
 @unpack kap, nk = prim
+@unpack mass = distrib
 
 #Plot the value function at age 50
 Plots.plot(kap, val_func[:, :, 50], labels=["High State" "Low State"])

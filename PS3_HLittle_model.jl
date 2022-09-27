@@ -3,6 +3,16 @@
 
 using Parameters, Plots #import the libraries we want
 
+#Using this space to think on μ
+μ_holder = zeros(66, 1)
+μ_holder[1]=1
+for i = 2:66
+    μ_holder[i]=μ_holder[i-1]/(1.011)
+end #end for loop
+μ_sum = sum(μ_holder)
+μ_holder = μ_holder*(1/μ_sum)
+println(sum(μ_holder)) #sanity check
+
 #Create a primitives struct
 @with_kw struct Primitives
     #demographics
@@ -93,6 +103,9 @@ using Parameters, Plots #import the libraries we want
     #initialize a very small number
     neg::Float64 = -1e10
 
+    #Keeping track of the weights
+    μ_vec = μ_holder
+
 end #end primitives struct
 
 #Create a mutable struct for results
@@ -119,36 +132,96 @@ end #close mutable struct
 
 function Initialize_R()
 prim = Primitives()
-val_func = zeros(180, 2, 66) #three dimensions of zeros, capital grid by states by number of ages
-pol_func = zeros(180, 2, 66) #like above
-lab_func = zeros(180, 2, 66) #like above
+val_func = zeros(prim.nk, 2, prim.J) #three dimensions of zeros, capital grid by states by number of ages
+pol_func = zeros(prim.nk, 2, prim.J) #like above
+lab_func = zeros(prim.nk, 2, prim.J) #like above
 res = Results(val_func, pol_func, lab_func)
 return prim, res #note that we're returning both primitives and res here so running Initialize_R also calls our primitives
 end #close function
 
 function Initialize_P()
-    K_agg =
-    L_agg = 
-    
-    w = 1.05
-    r = 0.05
-    b = 0.2
+    prim = Primitives() 
+    K_agg = 3.639 #initial guess for benchmark SS
+    L_agg = 0.4308 #initial guess for benchmark SS
+    #below, we use the aggregate levels of capital and labor 
+    w = (1-prim.α)*K_agg^prim.α*L_agg^(-prim.α)
+    rk = prim.α*K_agg^(prim.α-1)*L_agg^(1-prim.α)
+    r = rk - prim.δ #net off depreciation, rk is paid by firms, r is seen by hh
+    ret_mass = sum(prim.μ_vec[46:66])
+    b = (prim.θ*w*L_agg)/(ret_mass)
     price = Prices(K_agg, L_agg, w, r, b)
     return price
 end #close function
 
-function Initialize_M() #note that this must accout for the generations growing over time...
-    prim = Primitives() #initialize primtiives
-    for i = 1:prim.J
-        #first, put a uniform distribution (over states and capital) for all ages
-        mass[:, :, i] = ones(prim.nk, 2) 
-        mass[:, :, i] = mass[:, :, i]./(2*prim.nk)
-        #then, adjust for ages using the given rate of population growth
-        ###Actually, don't think I need to do this here...
-    end #close for loop
+function Initialize_M()
+    prim = Primitives() 
+    #initialize the whole thing as zeros
+    mass = zeros(prim.nk, 2, prim.J)
     distrib = Distribution(mass) #initialize results struct, did have q at one point
-    distrib #return deliverables
-end
+    return distrib #return distribution
+end #close function
+
+#Garrett's Get Index function
+function get_index(val::Float64, grid::Array{Float64,1})
+    n = length(grid)
+    index = 0 #preallocation
+    if val<=grid[1] #LEQ smallest element 
+        index = 1
+    elseif val>=grid[n] #GEQ biggest element
+        index = n
+    else
+        index_upper = findfirst(z->z>val, grid)
+        index_lower = index_upper - 1
+        val_upper, val_lower = grid[index_upper], grid[index_lower] #values
+        index = index_lower + (val - val_lower)  / (val_upper - val_lower) #weighted average
+    end
+    index #return
+end #close the get_index function
+
+function Fill_Mu(prim::Primitives,res::Results, distrib::Distribution) #note that this must accout for the generations growing over time...
+#see garretts code 
+
+    #initialize the first generation
+    distrib.mass[1, 1, 1] = 0.2037
+    distrib.mass[1, 2, 1] = 0.7963
+    for p_index = 2:66
+        #focus on those coming from the high state
+        pol_func_high = res.pol_func[:, 1, p_index-1] #create a vector of the capital choices in high state at specific age
+        for pos_h = 1:prim.nk
+            kprime = pol_func_high[pos_h] #which value of k prime are you looking for
+            pos = get_index(kprime, kap) #which value of k prime are you mapping into, grid
+            println(pos)
+            for i = 1:length(pos) #ensures that we're looking at a singelton, not an array
+            #the people at a given capital level today via HH come from the mass of those who chose it from high state last period
+            distrib.mass[pos_h, 1, p_index] = prim.Phh*distrib.mass[pos[i], 1, p_index-1] 
+            #the people at a given capital level today via HL come from the mass of those who chose it from high state last period
+            distrib.mass[pos_h, 2, p_index] = prim.Phl*distrib.mass[pos[i], 1, p_index-1] 
+            end #end for loop
+        end #end loop over the capital holdings
+
+        #focus on those coming from the low state
+        pol_func_low = res.pol_func[:, 2, p_index-1] #create a vector of the capital choices in low state at specific age
+        for pos_l = 1:prim.nk
+            pos = findall(x->x==prim.kap[pos_l], pol_func_low) #finds the element number associated with capital choice
+            for i = 1:length(pos) #ensures that we're looking at a singelton, not an array
+            #logic starts on the RHS, bring the low to high people to where their policy func puts them (LHS)
+            distrib.mass[pos_l, 1, p_index] = prim.Plh*distrib.mass[pos[i], 2, p_index-1] 
+            #logic starts on the RHS, bring the low to low people to where their policy func puts them (LHS)
+            distrib.mass[pos_l, 2, p_index] = prim.Pll*distrib.mass[pos[i], 2, p_index-1] 
+            end #end for loop
+        end #end loop over the capital holdings
+    
+    end #end loop over age panels
+
+    #now reweight each of the age panels
+    for i = 1:66
+        weight = prim.μ_vec[i]
+        distrib.mass[:, :, i] = distrib.mass[:, :, i]*weight
+    end #end rewight loop
+
+
+    return distrib.mass
+end #close function
 
 #############################################################################################
 #find the optimal policy functions and value functions
@@ -159,11 +232,7 @@ function Bellman(prim::Primitives,res::Results, price::Prices) #note that a is g
     @unpack val_func, pol_func, lab_func = res #unpack value function
     @unpack w, r, b = price #unpack the interest rate
     @unpack kap, nk, J, JR, tR, tW, β, σ, γ, θ, α, δ, hs, ls, Phh, Phl, Pll, Plh, e, age_vec= prim #unpack model primitives
-    #v_next = zeros(nk, 2, J) #next guess of value function to fill, accounting for each state of the world
 
-    #for a in reverse(age_vec) #big loop across all ages
-
-        #if a == J #if you're in the terminal age
         ###
         #Solve the problem of the final period people
         ###
@@ -175,7 +244,6 @@ function Bellman(prim::Primitives,res::Results, price::Prices) #note that a is g
                 #val_func[i, 2, J] = c^((1-σ)*γ)/(1-σ)
             end #end for loop
 
-        #elseif  J > a >= JR #if you're retired
         ###
         #Solve the problem of the retired people, age 46 to 65
         ###
@@ -197,7 +265,6 @@ function Bellman(prim::Primitives,res::Results, price::Prices) #note that a is g
                 end #close for loop, looping over k prime
             end #close for loop, looping over k
         end #close for loop over retired but not 66
-        #else a < JR
         ###
         #Solve the problem of the working age people
         ###
@@ -251,8 +318,6 @@ function Bellman(prim::Primitives,res::Results, price::Prices) #note that a is g
                 end #close for loop, looping over k prime
             end #close for loop, looping over k
         end #close for loop over working age
-        #end #end else if ... got rid of this approach
-    #end #close the loop over ages ... got rid of this approach
 end #end the Bellman Operator
 
 
