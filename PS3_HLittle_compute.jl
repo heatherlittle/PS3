@@ -4,13 +4,14 @@ using Parameters, Plots
 include("PS3_HLittle_model.jl")
 
 prim, res = Initialize_R()
-price = Initialize_P()
+price = Initialize_P(prim; K_agg=2.0, L_agg = 0.7) #K_agg=3.639, L_agg = 0.4308
 distrib = Initialize_M()
 
 Bellman(prim, res, price) #I was indexing with k prime when I should have been using k
 
-Fill_Mu(prim, res, distrib) #function to fill out the cross sectional distribution
-
+##############################################################################
+#Question 1
+##############################################################################
 
 #unpacking what I'll use to plot
 @unpack val_func, pol_func  = res
@@ -31,6 +32,15 @@ Plots.plot(kap, savings20, labels=["High State" "Low State"])
 #Plot the policy function at age 20
 Plots.plot(kap, pol_func[:,:,20], labels=["High State" "Low State"])
 
+##############################################################################
+#Question 2
+##############################################################################
 
+Fill_Mu(prim, res, distrib) #function to fill out the cross sectional distribution
 
+##############################################################################
+#Question 3
+##############################################################################
+
+Guess_Ver(prim,res, distrib, price; K_guess = 3.639, L_guess = 0.4308, err_k = 100.0, err_l = 100.0, tol = 0.0001) 
 

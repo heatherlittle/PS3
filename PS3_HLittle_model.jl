@@ -139,10 +139,10 @@ res = Results(val_func, pol_func, lab_func)
 return prim, res #note that we're returning both primitives and res here so running Initialize_R also calls our primitives
 end #close function
 
-function Initialize_P()
-    prim = Primitives() 
-    K_agg = 3.639 #initial guess for benchmark SS
-    L_agg = 0.4308 #initial guess for benchmark SS
+function Initialize_P(prim::Primitives; K_agg::Float64, L_agg::Float64)
+    #prim = Primitives() 
+    #K_agg = 3.639 #initial guess for benchmark SS
+    #L_agg = 0.4308 #initial guess for benchmark SS
     #below, we use the aggregate levels of capital and labor 
     w = (1-prim.α)*K_agg^prim.α*L_agg^(-prim.α)
     rk = prim.α*K_agg^(prim.α-1)*L_agg^(1-prim.α)
@@ -192,27 +192,26 @@ function Fill_Mu(prim::Primitives,res::Results, distrib::Distribution) #note tha
             println(pos)
             #the high prod people at a given capital level yesterday (pos_h) go to high state today (pos) at k prime choice with prob Phh
             distrib.mass[pos, 1, p_index] += prim.Phh*distrib.mass[pos_h, 1, p_index-1] 
-            #the people at a given capital level today via HL come from the mass of those who chose it from high state last period
+            #the high prod people at a given capital level yesterday (pos_h) go to low state today (pos) at k prime choice with prob Phl
             distrib.mass[pos, 2, p_index] += prim.Phl*distrib.mass[pos_h, 1, p_index-1] 
         end #end loop over the capital holdings
 
         #focus on those coming from the low state
-        pol_func_low = res.pol_func[:, 2, p_index-1] #create a vector of the capital choices in low state at specific age
+        ##exact same logic as above
+        pol_func_low = res.pol_func[:, 2, p_index-1] 
         for pos_l = 1:prim.nk
-            kprime = pol_func_low[pos_l] #which value of k prime are you looking for
+            kprime = pol_func_low[pos_l] 
             pos = round(Int64, get_index(kprime, prim.kap))             
-            #logic starts on the RHS, bring the low to high people to where their policy func puts them (LHS)
             distrib.mass[pos, 1, p_index] += prim.Plh*distrib.mass[pos_l, 2, p_index-1] 
-            #logic starts on the RHS, bring the low to low people to where their policy func puts them (LHS)
             distrib.mass[pos, 2, p_index] += prim.Pll*distrib.mass[pos_l, 2, p_index-1] 
-        end #end loop over the capital holdings
+        end #end for loop
     
     end #end loop over age panels
 
     
     #now reweight each of the age panels
     for i = 1:66
-        weight = prim.μ_vec[i]
+        weight = prim.μ_vec[i] #pull weight of each generation from the vector created earlier
         distrib.mass[:, :, i] = distrib.mass[:, :, i].*weight
     end #end rewight loop
     
@@ -262,6 +261,7 @@ function Bellman(prim::Primitives,res::Results, price::Prices) #note that a is g
                 end #close for loop, looping over k prime
             end #close for loop, looping over k
         end #close for loop over retired but not 66
+        
         ###
         #Solve the problem of the working age people
         ###
@@ -317,10 +317,89 @@ function Bellman(prim::Primitives,res::Results, price::Prices) #note that a is g
         end #close for loop over working age
 end #end the Bellman Operator
 
-
 ##############################################################################
 
 
 
+function K_new(prim::Primitives,res::Results, distrib::Distribution)
+    @unpack nk, J, kap = prim
+    @unpack pol_func = res
+    @unpack mass = distrib
+    #Note that what Dean calls F is what I call Mu, we are just meant to sum the weighted capital holdings
+    #Since the policy functions are a 3 dim array and the weights are a 3 dim array, we simply multiply element wise in the 2 matricies and sum over all nk*2*J products
+   
+    K_agg = 0 # initialize new aggregate capital as zero
+    K_grid_double = zeros(nk, 2, J)
+    K_grid_double[:, 1, 1] = kap
+    K_grid_double[:, 2, 1] = kap
+    for i = 2:J
+        K_grid_double[:, :, i] = K_grid_double[:, :, 1]
+    end #close for loop to fill K_grid_double
+
+    for i = 1:nk, z = 1:2, j = 1:J #loop over every single element of array, all 3 dimensions (order does not matter)
+        K_agg += K_grid_double[i, z, j] .* mass[i, z, j] #sum the product of every single element (nk*2*J terms)
+        #K_agg += pol_func[i, z, j] .* mass[i, z, j] #sum the product of every single element (nk*2*J terms)
+    end #end loop over 
+    return K_agg #output of function is the agg capital
+end #end function K_new
+
+function L_new(prim::Primitives,res::Results, distrib::Distribution)
+    @unpack nk, tW, e = prim
+    @unpack lab_func = res
+    @unpack mass = distrib
+    #This is very conceptually similar to the K_new function above, but here we need to account for the productivity of labor as well
+    #Labor differs from capital in that its productivity is varied, so we're essentially changing labor hours to labor productivity
+
+    prod = [3.0, 0.5] #since I brute forced my productivity states above, I will put them in a vector here for ease's sake
+
+    L_agg = 0 #initialize new agg labor as zero
+    for i = 1:nk, z = 1:2, j = 1:tW #loop over every single element of array, all 3 dimensions (order does not matter)
+        L_agg += lab_func[i, z, j] .* mass[i, z, j] .* prod[z] .* e[j] #sum the product of every single element (nk*2*tW terms)
+    end #end loop over 
+    return L_agg #output of function is the agg labor (as measured in productive units)
+end #end function L_new
+
+function Guess_Ver(prim::Primitives,res::Results, distrib::Distribution, price::Prices; K_guess::Float64, L_guess::Float64, err_k::Float64 = 100.0, err_l::Float64 = 100.0, tol::Float64 = 0.0001) #note the semicolon separating structs and other inputs
+    #I am going to use the conceptual approach we see in the V_iterate section of problem set 1
+    n = 0 #counter
+    
+    K_agg = K_guess #initialize the aggregate level of capital with our guess
+    L_agg = L_guess #initialize the aggregate level of labor (productivity) with our guess
+    err = 100
+
+    while err > tol #while both the capital and labor errors are greater than the tolerance level
+        prim, res = Initialize_R() #initialize results and primitives, new each time
+        price = Initialize_P(prim; K_agg, L_agg) #define the prices, using our agg levels of capital and labor (this will change with each iteration)
+        distrib = Initialize_M() #Initialize the cross sectional distribution (just start with empty grid each time)
+
+        Bellman(prim, res, price) #using the prices you have for now, get the policy and labor functions
+        Fill_Mu(prim, res, distrib) #fill the cross sectional distribution using the policy functions
+
+        #Before getting the new aggregate levels of capital and labor, save the old ones
+        K_old = K_agg
+        L_old = L_agg
+
+        #Get the new aggregate levels of capital and labor
+        K_agg = K_new(prim,res, distrib)
+        L_agg = L_new(prim,res, distrib)
+
+        #Errors of the new (via policy capital and labor choices) minus the old aggregates
+        err_k = K_agg - K_old 
+        err_l = L_agg - L_old 
+        err = err_k+err_l
+
+        println("Before updating, we have aggregate capital is ", K_agg, " and aggregate labor is ", L_agg, ".")
+
+        #update using rule in the problem set (consider changing this, I think Michael said to use 0.5?)
+        #K_agg = 0.99*K_old + 0.01*K_agg
+        #L_agg = 0.99*L_old + 0.01*L_agg
+        K_agg = 0.9*K_old + 0.1*K_agg
+        L_agg = 0.9*L_old + 0.1*L_agg
+
+        n=+1 #to count how many iterations until aggregate capital and labor converge
+    end #end while loop
+    println("Aggregate capital and labor converged in ", n, " iterations.")
+    println("After updating, we have aggregate capital is ", K_agg, " and aggregate labor is ", L_agg, ".")
+end #end the guess and verify function
 
 
