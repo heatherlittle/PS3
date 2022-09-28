@@ -359,12 +359,11 @@ function L_new(prim::Primitives,res::Results, distrib::Distribution)
     return L_agg #output of function is the agg labor (as measured in productive units)
 end #end function L_new
 
-function Guess_Ver(prim::Primitives,res::Results, distrib::Distribution, price::Prices; K_guess::Float64, L_guess::Float64, err_k::Float64 = 100.0, err_l::Float64 = 100.0, tol::Float64 = 0.0001) #note the semicolon separating structs and other inputs
+function Guess_Ver(prim::Primitives,res::Results, distrib::Distribution, price::Prices; err_k::Float64 = 100.0, err_l::Float64 = 100.0, tol::Float64 = 0.0001) #note the semicolon separating structs and other inputs
     #I am going to use the conceptual approach we see in the V_iterate section of problem set 1
+    @unpack K_agg, L_agg = price
     n = 0 #counter
     
-    K_agg = K_guess #initialize the aggregate level of capital with our guess
-    L_agg = L_guess #initialize the aggregate level of labor (productivity) with our guess
     err = 100
 
     while err > tol #while both the capital and labor errors are greater than the tolerance level
@@ -396,7 +395,7 @@ function Guess_Ver(prim::Primitives,res::Results, distrib::Distribution, price::
         K_agg = 0.9*K_old + 0.1*K_agg
         L_agg = 0.9*L_old + 0.1*L_agg
 
-        n=+1 #to count how many iterations until aggregate capital and labor converge
+        n += 1 #to count how many iterations until aggregate capital and labor converge
     end #end while loop
     println("Aggregate capital and labor converged in ", n, " iterations.")
     println("After updating, we have aggregate capital is ", K_agg, " and aggregate labor is ", L_agg, ".")
