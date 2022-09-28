@@ -14,7 +14,7 @@ Fill_Mu(prim, res, distrib) #function to fill out the cross sectional distributi
 
 #unpacking what I'll use to plot
 @unpack val_func, pol_func  = res
-@unpack kap, nk = prim
+@unpack kap, nk, μ_vec = prim
 @unpack mass = distrib
 
 #Plot the value function at age 50

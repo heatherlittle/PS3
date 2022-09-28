@@ -179,46 +179,43 @@ function get_index(val::Float64, grid::Array{Float64,1})
 end #close the get_index function
 
 function Fill_Mu(prim::Primitives,res::Results, distrib::Distribution) #note that this must accout for the generations growing over time...
-#see garretts code 
 
     #initialize the first generation
-    distrib.mass[1, 1, 1] = 0.2037
-    distrib.mass[1, 2, 1] = 0.7963
+    distrib.mass[1, 1, 1] = 0.2037 #about twenty percent begin with zero assets and high prod
+    distrib.mass[1, 2, 1] = 0.7963 #about 8 percent begin with zero assets and low prod
     for p_index = 2:66
         #focus on those coming from the high state
-        pol_func_high = res.pol_func[:, 1, p_index-1] #create a vector of the capital choices in high state at specific age
-        for pos_h = 1:prim.nk
-            kprime = pol_func_high[pos_h] #which value of k prime are you looking for
-            pos = get_index(kprime, kap) #which value of k prime are you mapping into, grid
+        pol_func_high = res.pol_func[:, 1, p_index-1] #create a vector of the capital choices in high state the previous age
+        for pos_h = 1:prim.nk #looking over all choices of capital by INDEX
+            kprime = pol_func_high[pos_h] #gives the actual choice of k prime at each index from yesterday
+            pos = round(Int64, get_index(kprime, prim.kap)) #maps the k prime choice from yesterday into an index of the capital grid
             println(pos)
-            for i = 1:length(pos) #ensures that we're looking at a singelton, not an array
-            #the people at a given capital level today via HH come from the mass of those who chose it from high state last period
-            distrib.mass[pos_h, 1, p_index] = prim.Phh*distrib.mass[pos[i], 1, p_index-1] 
+            #the high prod people at a given capital level yesterday (pos_h) go to high state today (pos) at k prime choice with prob Phh
+            distrib.mass[pos, 1, p_index] += prim.Phh*distrib.mass[pos_h, 1, p_index-1] 
             #the people at a given capital level today via HL come from the mass of those who chose it from high state last period
-            distrib.mass[pos_h, 2, p_index] = prim.Phl*distrib.mass[pos[i], 1, p_index-1] 
-            end #end for loop
+            distrib.mass[pos, 2, p_index] += prim.Phl*distrib.mass[pos_h, 1, p_index-1] 
         end #end loop over the capital holdings
 
         #focus on those coming from the low state
         pol_func_low = res.pol_func[:, 2, p_index-1] #create a vector of the capital choices in low state at specific age
         for pos_l = 1:prim.nk
-            pos = findall(x->x==prim.kap[pos_l], pol_func_low) #finds the element number associated with capital choice
-            for i = 1:length(pos) #ensures that we're looking at a singelton, not an array
+            kprime = pol_func_low[pos_l] #which value of k prime are you looking for
+            pos = round(Int64, get_index(kprime, prim.kap))             
             #logic starts on the RHS, bring the low to high people to where their policy func puts them (LHS)
-            distrib.mass[pos_l, 1, p_index] = prim.Plh*distrib.mass[pos[i], 2, p_index-1] 
+            distrib.mass[pos, 1, p_index] += prim.Plh*distrib.mass[pos_l, 2, p_index-1] 
             #logic starts on the RHS, bring the low to low people to where their policy func puts them (LHS)
-            distrib.mass[pos_l, 2, p_index] = prim.Pll*distrib.mass[pos[i], 2, p_index-1] 
-            end #end for loop
+            distrib.mass[pos, 2, p_index] += prim.Pll*distrib.mass[pos_l, 2, p_index-1] 
         end #end loop over the capital holdings
     
     end #end loop over age panels
 
+    
     #now reweight each of the age panels
     for i = 1:66
         weight = prim.μ_vec[i]
-        distrib.mass[:, :, i] = distrib.mass[:, :, i]*weight
+        distrib.mass[:, :, i] = distrib.mass[:, :, i].*weight
     end #end rewight loop
-
+    
 
     return distrib.mass
 end #close function
