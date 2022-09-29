@@ -38,7 +38,7 @@ println(sum(μ_holder)) #sanity check
     δ::Float64 = 0.06 #rate of depreciation
 
     #for high and low states
-    hs::Float64 = 3 #high state productivity
+    hs::Float64 = 0.5 #high state productivity
     ls::Float64 = 0.5 #low state producitivity
 
     #state transitions, markov transition probabilities decomposed
@@ -149,6 +149,7 @@ function Initialize_P(prim::Primitives; K_agg::Float64, L_agg::Float64)
     r = rk - prim.δ #net off depreciation, rk is paid by firms, r is seen by hh
     ret_mass = sum(prim.μ_vec[46:66])
     b = (prim.θ*w*L_agg)/(ret_mass)
+    #b=0
     price = Prices(K_agg, L_agg, w, r, b)
     return price
 end #close function
@@ -344,13 +345,13 @@ function K_new(prim::Primitives,res::Results, distrib::Distribution)
 end #end function K_new
 
 function L_new(prim::Primitives,res::Results, distrib::Distribution)
-    @unpack nk, tW, e = prim
+    @unpack nk, tW, e, hs, ls = prim
     @unpack lab_func = res
     @unpack mass = distrib
     #This is very conceptually similar to the K_new function above, but here we need to account for the productivity of labor as well
     #Labor differs from capital in that its productivity is varied, so we're essentially changing labor hours to labor productivity
 
-    prod = [3.0, 0.5] #since I brute forced my productivity states above, I will put them in a vector here for ease's sake
+    prod = [hs, ls] #since I brute forced my productivity states above, I will put them in a vector here for ease's sake
 
     L_agg = 0 #initialize new agg labor as zero
     for i = 1:nk, z = 1:2, j = 1:tW #loop over every single element of array, all 3 dimensions (order does not matter)
@@ -363,10 +364,8 @@ function Guess_Ver(prim::Primitives,res::Results, distrib::Distribution, price::
     #I am going to use the conceptual approach we see in the V_iterate section of problem set 1
     @unpack K_agg, L_agg = price
     n = 0 #counter
-    
-    err = 100
 
-    while err > tol #while both the capital and labor errors are greater than the tolerance level
+    while abs(err_k) > tol || abs(err_l) > tol #while both the capital and labor errors are greater than the tolerance level
         prim, res = Initialize_R() #initialize results and primitives, new each time
         price = Initialize_P(prim; K_agg, L_agg) #define the prices, using our agg levels of capital and labor (this will change with each iteration)
         distrib = Initialize_M() #Initialize the cross sectional distribution (just start with empty grid each time)
